@@ -115,19 +115,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
   100%{transform:scale(0);opacity:0}
 }
 
-/* ── Size Controls ── */
-#size-controls{
-  position:absolute;display:none;
-  gap:4px;z-index:1001;
-}
-#size-controls.visible{display:flex}
-#size-controls button{
-  width:28px;height:28px;
-  border:2px solid var(--ink);background:#fff;
-  font-size:16px;font-weight:700;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-}
-
 /* ── Trash ── */
 #trash-zone{
   position:absolute;bottom:0;left:0;right:0;
@@ -188,8 +175,9 @@ input,button,textarea{font-family:inherit;font-size:16px}
 #share-preview{
   background:#fff;border:2px solid var(--ink);
   padding:12px;font-size:15px;line-height:1.4;
-  white-space:pre;font-family:monospace;
-  margin-bottom:16px;overflow-x:auto;
+  white-space:pre-wrap;word-break:break-all;
+  font-family:monospace;
+  margin-bottom:16px;
 }
 #overlay-box .btn-row{display:flex;flex-direction:column;gap:8px}
 #overlay-box .btn-row button{
@@ -214,9 +202,10 @@ input,button,textarea{font-family:inherit;font-size:16px}
 }
 #done-screen .past-share{
   background:#fff;border:2px solid var(--ink);
-  padding:12px;font-size:14px;white-space:pre;
-  font-family:monospace;margin-top:16px;max-width:300px;
-  text-align:left;
+  padding:12px;font-size:14px;white-space:pre-wrap;
+  word-break:break-all;
+  font-family:monospace;margin-top:16px;max-width:90%;
+  width:100%;text-align:left;box-sizing:border-box;
 }
 #error-screen p{font-size:14px;color:#888;margin-top:4px}
 
@@ -259,10 +248,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
     <div id="canvas-wrap">
       <div id="canvas">
         <div class="placeholder" id="canvas-hint">タップして絵文字を配置</div>
-        <div id="size-controls">
-          <button id="size-up">＋</button>
-          <button id="size-down">−</button>
-        </div>
         <div id="trash-zone">🗑️</div>
       </div>
     </div>
@@ -329,9 +314,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
   const hintsRow = $('hints-row');
   const canvas = $('canvas');
   const canvasHint = $('canvas-hint');
-  const sizeControls = $('size-controls');
-  const sizeUp = $('size-up');
-  const sizeDown = $('size-down');
   const trashZone = $('trash-zone');
   const currentEmojiEl = $('current-emoji');
   const btnOther = $('btn-other');
@@ -376,8 +358,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
   // ── Init ──
   async function init() {
     todayKey = getTodayJST();
-    const dayN = getDayNumber(todayKey);
-    dayNum.textContent = dayN > 0 ? 'Day ' + dayN : '';
+    dayNum.textContent = todayKey.replace(/-/g, '/');
 
     // Check if already done
     const saved = localStorage.getItem(storageKey(todayKey));
@@ -486,9 +467,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
     canvas.addEventListener('touchmove', onCanvasTouchMove, { passive: false });
     canvas.addEventListener('touchend', onCanvasTouchEnd, { passive: false });
     canvas.addEventListener('mousedown', onCanvasMouseDown);
-
-    sizeUp.addEventListener('click', (e) => { e.stopPropagation(); resizeSelected(6); });
-    sizeDown.addEventListener('click', (e) => { e.stopPropagation(); resizeSelected(-6); });
   }
 
   function updateHint() {
@@ -524,7 +502,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
     deselectItem();
     selectedItem = item;
     item.el.classList.add('selected-emoji');
-    showSizeControls(item);
   }
 
   function deselectItem() {
@@ -532,23 +509,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
       selectedItem.el.classList.remove('selected-emoji');
       selectedItem = null;
     }
-    sizeControls.classList.remove('visible');
-  }
-
-  function showSizeControls(item) {
-    const el = item.el;
-    const left = parseInt(el.style.left) || 0;
-    const top = parseInt(el.style.top) || 0;
-    sizeControls.style.left = left + 'px';
-    sizeControls.style.top = Math.max(0, top - 34) + 'px';
-    sizeControls.classList.add('visible');
-  }
-
-  function resizeSelected(delta) {
-    if (!selectedItem) return;
-    selectedItem.size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, selectedItem.size + delta));
-    selectedItem.el.style.fontSize = selectedItem.size + 'px';
-    showSizeControls(selectedItem);
   }
 
   function removeItem(item) {
@@ -601,7 +561,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
       };
       hit.el.classList.add('dragging');
       selectItem(hit);
-      sizeControls.classList.remove('visible');
     } else {
       deselectItem();
       placeEmoji(t.clientX, t.clientY);
@@ -654,7 +613,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
     if (pinchState) {
       if (e.touches.length < 2) {
         pinchState = null;
-        if (selectedItem) showSizeControls(selectedItem);
       }
       return;
     }
@@ -668,8 +626,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
       removeItem(item);
     } else if (!dragState.moved) {
       selectItem(item);
-    } else {
-      if (selectedItem === item) showSizeControls(item);
     }
 
     trashZone.classList.remove('visible', 'active');
@@ -685,7 +641,6 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
   // ── Mouse fallback ──
   function onCanvasMouseDown(e) {
-    if (e.target === sizeUp || e.target === sizeDown) return;
     const hit = getItemAt(e.clientX, e.clientY);
     if (hit) {
       selectItem(hit);
@@ -783,7 +738,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
     for (let r = rMin; r <= rMax; r++) {
       let line = '';
       for (let c = cMin; c <= cMax; c++) {
-        line += grid[r][c] || '⬜';
+        line += grid[r][c] || '\u2800';
       }
       lines.push(line);
     }
