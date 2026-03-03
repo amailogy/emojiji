@@ -616,27 +616,29 @@ input,button,textarea{font-family:inherit;font-size:16px}
   }
 
   // ── Touch handling ──
+  let pendingPlace = null; // deferred placement to avoid accidental place before pinch
+
   function onCanvasTouchStart(e) {
     if (e.touches.length === 2) {
       e.preventDefault();
+      // Cancel any pending single-tap placement
+      if (pendingPlace) { clearTimeout(pendingPlace); pendingPlace = null; }
+      // If dragging an item, cancel drag
+      if (dragState) {
+        dragState.item.el.classList.remove('dragging');
+        dragState = null;
+      }
+      // Always deselect and use canvas zoom for 2-finger
+      deselectItem();
       const t0 = e.touches[0], t1 = e.touches[1];
       const dist = getTouchDist(e);
-      if (selectedItem) {
-        pinchState = {
-          type: 'emoji',
-          item: selectedItem,
-          dist: dist,
-          origSize: selectedItem.size
-        };
-      } else {
-        pinchState = {
-          type: 'canvas',
-          dist: dist,
-          origZoom: canvasZoom,
-          centerX: (t0.clientX + t1.clientX) / 2,
-          centerY: (t0.clientY + t1.clientY) / 2
-        };
-      }
+      pinchState = {
+        type: 'canvas',
+        dist: dist,
+        origZoom: canvasZoom,
+        centerX: (t0.clientX + t1.clientX) / 2,
+        centerY: (t0.clientY + t1.clientY) / 2
+      };
       return;
     }
 
@@ -660,7 +662,12 @@ input,button,textarea{font-family:inherit;font-size:16px}
       selectItem(hit);
     } else {
       deselectItem();
-      placeEmoji(t.clientX, t.clientY);
+      // Defer placement briefly so a second finger can cancel it
+      const cx = t.clientX, cy = t.clientY;
+      pendingPlace = setTimeout(() => {
+        pendingPlace = null;
+        placeEmoji(cx, cy);
+      }, 120);
     }
   }
 
@@ -878,8 +885,14 @@ input,button,textarea{font-family:inherit;font-size:16px}
     const artText = lines.join('\n');
     const shareText = dateStr + '\n' + artText + '\n\n' + SITE_URL + ' #emojiji';
 
-    // Save to localStorage
-    localStorage.setItem(storageKey(todayKey), shareText);
+    // Don't save yet — save only when user actually shares (tweet or copy)
+    let submitted = false;
+
+    function markSubmitted() {
+      if (submitted) return;
+      submitted = true;
+      localStorage.setItem(storageKey(todayKey), shareText);
+    }
 
     // Show overlay
     overlayWord.textContent = topic.word;
@@ -888,11 +901,13 @@ input,button,textarea{font-family:inherit;font-size:16px}
     overlay.classList.add('visible');
 
     btnTweet.onclick = () => {
+      markSubmitted();
       const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText);
       window.open(url, '_blank');
     };
 
     btnCopyText.onclick = () => {
+      markSubmitted();
       navigator.clipboard.writeText(shareText).then(() => {
         btnCopyText.textContent = 'コピーしました！';
         setTimeout(() => { btnCopyText.textContent = 'テキストをコピー'; }, 2000);
@@ -901,7 +916,10 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
     btnCloseOverlay.onclick = () => {
       overlay.classList.remove('visible');
-      showDone(shareText);
+      if (submitted) {
+        showDone(shareText);
+      }
+      // If not submitted, just close overlay and return to canvas
     };
   }
 
