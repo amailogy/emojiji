@@ -33,56 +33,58 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
 /* ── Header ── */
 #header{
-  display:flex;align-items:baseline;gap:8px;
-  padding:10px 16px 8px;
-  border-bottom:3px double var(--ink);
+  display:flex;align-items:baseline;gap:6px;
+  padding:6px 12px 4px;
+  border-bottom:2px double var(--ink);
   flex-shrink:0;
 }
 #header .logo{
   font-family:'Shippori Mincho',serif;font-weight:800;
-  font-size:22px;letter-spacing:-1px;
+  font-size:18px;letter-spacing:-1px;
 }
-#header .sub{font-size:11px;color:#888;white-space:nowrap}
+#header .sub{font-size:10px;color:#888;white-space:nowrap}
 #header .day{
-  margin-left:auto;font-size:11px;font-weight:700;
+  margin-left:auto;font-size:10px;font-weight:700;
   white-space:nowrap;letter-spacing:1px;
 }
 
 /* ── Topic ── */
 #topic-area{
-  padding:10px 16px;flex-shrink:0;
+  padding:6px 12px;flex-shrink:0;
   border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;
 }
-#topic-label{font-size:10px;letter-spacing:2px;color:#888;text-transform:uppercase}
+#topic-label{font-size:9px;letter-spacing:2px;color:#888;text-transform:uppercase;flex-shrink:0}
 #topic-word{
   font-family:'Shippori Mincho',serif;font-weight:800;
-  font-size:28px;color:var(--red);margin-top:2px;
+  font-size:24px;color:var(--red);
 }
 
 /* ── Hints ── */
 #hints-row{
-  display:flex;align-items:center;gap:6px;
-  padding:8px 16px;flex-shrink:0;
+  display:flex;align-items:center;gap:4px;
+  padding:6px 12px;flex-shrink:0;
   overflow-x:auto;-webkit-overflow-scrolling:touch;
   border-bottom:1px solid var(--border);
 }
 #hints-row::-webkit-scrollbar{display:none}
 .hint-btn{
-  flex-shrink:0;width:38px;height:38px;
+  flex-shrink:0;width:44px;height:44px;
   display:flex;align-items:center;justify-content:center;
-  font-size:22px;border:2px solid var(--border);
-  background:#fff;cursor:pointer;border-radius:0;
+  font-size:24px;border:2px solid var(--border);
+  background:#fff;cursor:pointer;border-radius:4px;
   transition:border-color .15s;
+  -webkit-tap-highlight-color:transparent;
 }
 .hint-btn.selected{border-color:var(--red);background:#fff5f5}
 .hint-btn.more{
   font-size:12px;font-weight:700;color:#888;
-  border-radius:6px;min-width:38px;
+  border-radius:6px;min-width:44px;
 }
 
 /* ── Canvas ── */
 #canvas-wrap{
-  flex:1;min-height:0;padding:8px 16px;
+  flex:1;min-height:0;padding:4px 8px;
   display:flex;flex-direction:column;
 }
 #canvas{
@@ -129,6 +131,12 @@ input,button,textarea{font-family:inherit;font-size:16px}
   0%{transform:scale(1);opacity:1}
   100%{transform:scale(0);opacity:0}
 }
+@keyframes pop-in{
+  0%{transform:scale(0);opacity:0}
+  60%{transform:scale(1.2);opacity:1}
+  100%{transform:scale(1);opacity:1}
+}
+.emoji-item.placing{animation:pop-in .2s ease-out forwards}
 
 /* ── Trash ── */
 #trash-zone{
@@ -146,23 +154,28 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
 /* ── Toolbar ── */
 #toolbar{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 16px 10px;flex-shrink:0;
+  display:flex;align-items:center;gap:6px;
+  padding:6px 10px;flex-shrink:0;
   border-top:1px solid var(--border);
+  background:var(--bg);
 }
 #current-emoji{
-  width:40px;height:40px;font-size:28px;
+  width:44px;height:44px;font-size:28px;
   display:flex;align-items:center;justify-content:center;
   border:2px solid var(--ink);background:#fff;flex-shrink:0;
+  border-radius:4px;
 }
 .tb-btn{
-  height:36px;padding:0 12px;
+  height:44px;min-width:44px;padding:0 10px;
   border:2px solid var(--ink);background:#fff;
   font-size:12px;font-weight:700;cursor:pointer;
-  white-space:nowrap;
+  white-space:nowrap;border-radius:4px;
+  -webkit-tap-highlight-color:transparent;
+  flex-shrink:0;
 }
 .tb-btn.share{background:var(--ink);color:#fff}
 .tb-btn.share:active{background:var(--red)}
+.tb-btn:disabled{opacity:.35;pointer-events:none}
 #toolbar .spacer{flex:1}
 #emoji-input{
   position:absolute;opacity:0;width:1px;height:1px;
@@ -273,6 +286,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
     <div id="toolbar">
       <div id="current-emoji"></div>
       <button class="tb-btn" id="btn-other">他の絵文字</button>
+      <button class="tb-btn" id="btn-undo" disabled>戻す</button>
       <span class="spacer"></span>
       <button class="tb-btn" id="btn-clear">全消し</button>
       <button class="tb-btn share" id="btn-share">共有</button>
@@ -340,6 +354,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
   const trashZone = $('trash-zone');
   const currentEmojiEl = $('current-emoji');
   const btnOther = $('btn-other');
+  const btnUndo = $('btn-undo');
   const btnClear = $('btn-clear');
   const btnShare = $('btn-share');
   const emojiInput = $('emoji-input');
@@ -536,6 +551,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
   function updateHint() {
     canvasHint.style.display = emojiItems.length === 0 ? '' : 'none';
+    btnUndo.disabled = emojiItems.length === 0;
   }
 
   function placeEmoji(x, y) {
@@ -546,9 +562,10 @@ input,button,textarea{font-family:inherit;font-size:16px}
       el: null
     };
     const el = document.createElement('div');
-    el.className = 'emoji-item';
+    el.className = 'emoji-item placing';
     el.style.fontSize = item.size + 'px';
     el.textContent = item.emoji;
+    el.addEventListener('animationend', () => el.classList.remove('placing'), { once: true });
     canvasInner.appendChild(el);
     item.el = el;
 
@@ -602,6 +619,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
   function onCanvasTouchStart(e) {
     if (e.touches.length === 2) {
       e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
       const dist = getTouchDist(e);
       if (selectedItem) {
         pinchState = {
@@ -614,7 +632,9 @@ input,button,textarea{font-family:inherit;font-size:16px}
         pinchState = {
           type: 'canvas',
           dist: dist,
-          origZoom: canvasZoom
+          origZoom: canvasZoom,
+          centerX: (t0.clientX + t1.clientX) / 2,
+          centerY: (t0.clientY + t1.clientY) / 2
         };
       }
       return;
@@ -647,6 +667,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
   function onCanvasTouchMove(e) {
     if (pinchState && e.touches.length === 2) {
       e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
       const dist = getTouchDist(e);
       const scale = dist / pinchState.dist;
       if (pinchState.type === 'emoji') {
@@ -654,7 +675,14 @@ input,button,textarea{font-family:inherit;font-size:16px}
         pinchState.item.size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, newSize));
         pinchState.item.el.style.fontSize = pinchState.item.size + 'px';
       } else {
+        // Simultaneous zoom + pan
         setCanvasZoom(pinchState.origZoom * scale);
+        const newCX = (t0.clientX + t1.clientX) / 2;
+        const newCY = (t0.clientY + t1.clientY) / 2;
+        canvas.scrollLeft -= (newCX - pinchState.centerX);
+        canvas.scrollTop -= (newCY - pinchState.centerY);
+        pinchState.centerX = newCX;
+        pinchState.centerY = newCY;
       }
       return;
     }
@@ -774,16 +802,23 @@ input,button,textarea{font-family:inherit;font-size:16px}
     }
   }
 
-  // Mouse wheel zoom
+  // Mouse wheel pan (scroll canvas when zoomed)
   canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setCanvasZoom(canvasZoom + delta);
-  }, { passive: false });
+    if (canvasZoom > 1) {
+      // When zoomed in, let native scroll handle panning
+      return;
+    }
+    // At 1x or below, no scroll needed
+  });
 
   // ── Toolbar ──
   function setupToolbar() {
     btnOther.addEventListener('click', openEmojiKeyboard);
+    btnUndo.addEventListener('click', () => {
+      if (emojiItems.length === 0) return;
+      const last = emojiItems[emojiItems.length - 1];
+      removeItem(last);
+    });
     btnClear.addEventListener('click', () => {
       emojiItems.forEach(item => item.el.remove());
       emojiItems = [];
