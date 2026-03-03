@@ -86,6 +86,7 @@ input,button,textarea{font-family:inherit;font-size:16px}
 #canvas-wrap{
   flex:1;min-height:0;padding:4px 8px;
   display:flex;flex-direction:column;
+  position:relative;overflow:hidden;
 }
 #canvas{
   flex:1;position:relative;
@@ -279,8 +280,8 @@ input,button,textarea{font-family:inherit;font-size:16px}
           <div class="placeholder" id="canvas-hint">タップして絵文字を配置</div>
         </div>
         <div id="zoom-indicator">100%</div>
-        <div id="trash-zone">🗑️</div>
       </div>
+      <div id="trash-zone">🗑️</div>
     </div>
 
     <div id="toolbar">
@@ -682,12 +683,27 @@ input,button,textarea{font-family:inherit;font-size:16px}
         pinchState.item.size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, newSize));
         pinchState.item.el.style.fontSize = pinchState.item.size + 'px';
       } else {
-        // Simultaneous zoom + pan
-        setCanvasZoom(pinchState.origZoom * scale);
+        // Zoom centered on pinch midpoint + pan
         const newCX = (t0.clientX + t1.clientX) / 2;
         const newCY = (t0.clientY + t1.clientY) / 2;
-        canvas.scrollLeft -= (newCX - pinchState.centerX);
-        canvas.scrollTop -= (newCY - pinchState.centerY);
+        const cRect = canvas.getBoundingClientRect();
+        // Pinch center relative to canvas viewport
+        const px = newCX - cRect.left;
+        const py = newCY - cRect.top;
+        // Content point under pinch center before zoom
+        const contentX = (canvas.scrollLeft + px) / canvasZoom;
+        const contentY = (canvas.scrollTop + py) / canvasZoom;
+        // Apply new zoom
+        const newZoom = pinchState.origZoom * scale;
+        setCanvasZoom(newZoom);
+        // Adjust scroll so content point stays under pinch center
+        canvas.scrollLeft = contentX * canvasZoom - px;
+        canvas.scrollTop = contentY * canvasZoom - py;
+        // Also apply pan delta
+        const dx = newCX - pinchState.centerX;
+        const dy = newCY - pinchState.centerY;
+        canvas.scrollLeft -= dx;
+        canvas.scrollTop -= dy;
         pinchState.centerX = newCX;
         pinchState.centerY = newCY;
       }
