@@ -91,12 +91,27 @@ input,button,textarea{font-family:inherit;font-size:16px}
   box-shadow:4px 4px 0 rgba(0,0,0,.1);
   overflow:hidden;touch-action:none;
 }
+#canvas.zoomed{overflow:auto}
+#canvas::-webkit-scrollbar{width:4px;height:4px}
+#canvas::-webkit-scrollbar-thumb{background:#ccc;border-radius:2px}
+#canvas-inner{
+  position:relative;width:100%;height:100%;
+  transform-origin:0 0;
+}
 #canvas .placeholder{
   position:absolute;top:50%;left:50%;
   transform:translate(-50%,-50%);
   font-size:13px;color:#bbb;pointer-events:none;
   text-align:center;line-height:1.6;
 }
+#zoom-indicator{
+  position:absolute;top:8px;right:8px;
+  font-size:11px;font-weight:700;color:#888;
+  background:rgba(255,255,255,.85);padding:2px 6px;
+  border:1px solid var(--border);z-index:10;
+  pointer-events:none;display:none;
+}
+#zoom-indicator.visible{display:block}
 .emoji-item{
   position:absolute;cursor:grab;user-select:none;
   -webkit-user-select:none;
@@ -247,7 +262,10 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
     <div id="canvas-wrap">
       <div id="canvas">
-        <div class="placeholder" id="canvas-hint">タップして絵文字を配置</div>
+        <div id="canvas-inner">
+          <div class="placeholder" id="canvas-hint">タップして絵文字を配置</div>
+        </div>
+        <div id="zoom-indicator">100%</div>
         <div id="trash-zone">🗑️</div>
       </div>
     </div>
@@ -299,6 +317,9 @@ input,button,textarea{font-family:inherit;font-size:16px}
   let selectedItem = null;
   let dragState = null;
   let pinchState = null;
+  let canvasZoom = 1;
+  const MIN_ZOOM = 0.5;
+  const MAX_ZOOM = 3;
 
   // ── Elements ──
   const $ = id => document.getElementById(id);
@@ -313,7 +334,9 @@ input,button,textarea{font-family:inherit;font-size:16px}
   const topicWord = $('topic-word');
   const hintsRow = $('hints-row');
   const canvas = $('canvas');
+  const canvasInner = $('canvas-inner');
   const canvasHint = $('canvas-hint');
+  const zoomIndicator = $('zoom-indicator');
   const trashZone = $('trash-zone');
   const currentEmojiEl = $('current-emoji');
   const btnOther = $('btn-other');
@@ -461,12 +484,54 @@ input,button,textarea{font-family:inherit;font-size:16px}
     emojiInput.click();
   }
 
+  // ── Canvas Zoom ──
+  function setCanvasZoom(z) {
+    canvasZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+    canvasInner.style.transform = 'scale(' + canvasZoom + ')';
+    // Keep inner size at 100% of canvas, scale handles the visual zoom
+    // For >1x, expand the scrollable area
+    if (canvasZoom > 1) {
+      canvasInner.style.width = '100%';
+      canvasInner.style.height = '100%';
+      canvas.classList.add('zoomed');
+    } else {
+      canvasInner.style.width = '100%';
+      canvasInner.style.height = '100%';
+      canvas.classList.remove('zoomed');
+      canvas.scrollTop = 0;
+      canvas.scrollLeft = 0;
+    }
+    zoomIndicator.textContent = Math.round(canvasZoom * 100) + '%';
+    if (Math.abs(canvasZoom - 1) < 0.01) {
+      zoomIndicator.classList.remove('visible');
+      canvas.classList.remove('zoomed');
+    } else {
+      zoomIndicator.classList.add('visible');
+    }
+  }
+
+  function screenToCanvas(clientX, clientY) {
+    const rect = canvasInner.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) / canvasZoom,
+      y: (clientY - rect.top) / canvasZoom
+    };
+  }
+
   // ── Canvas ──
   function setupCanvas() {
     canvas.addEventListener('touchstart', onCanvasTouchStart, { passive: false });
     canvas.addEventListener('touchmove', onCanvasTouchMove, { passive: false });
     canvas.addEventListener('touchend', onCanvasTouchEnd, { passive: false });
     canvas.addEventListener('mousedown', onCanvasMouseDown);
+    canvas.addEventListener('dblclick', onCanvasDblClick);
+  }
+
+  function onCanvasDblClick(e) {
+    if (getItemAt(e.clientX, e.clientY)) return;
+    setCanvasZoom(1);
+    canvas.scrollTop = 0;
+    canvas.scrollLeft = 0;
   }
 
   function updateHint() {
@@ -484,14 +549,16 @@ input,button,textarea{font-family:inherit;font-size:16px}
     el.className = 'emoji-item';
     el.style.fontSize = item.size + 'px';
     el.textContent = item.emoji;
-    canvas.appendChild(el);
+    canvasInner.appendChild(el);
     item.el = el;
 
-    const rect = canvas.getBoundingClientRect();
-    const ex = x - rect.left - item.size / 2;
-    const ey = y - rect.top - item.size / 2;
-    el.style.left = Math.max(0, Math.min(ex, rect.width - item.size)) + 'px';
-    el.style.top = Math.max(0, Math.min(ey, rect.height - item.size)) + 'px';
+    const pos = screenToCanvas(x, y);
+    const iw = canvasInner.offsetWidth;
+    const ih = canvasInner.offsetHeight;
+    const ex = pos.x - item.size / 2;
+    const ey = pos.y - item.size / 2;
+    el.style.left = Math.max(0, Math.min(ex, iw - item.size)) + 'px';
+    el.style.top = Math.max(0, Math.min(ey, ih - item.size)) + 'px';
 
     emojiItems.push(item);
     updateHint();
@@ -533,13 +600,23 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
   // ── Touch handling ──
   function onCanvasTouchStart(e) {
-    if (e.touches.length === 2 && selectedItem) {
+    if (e.touches.length === 2) {
       e.preventDefault();
-      pinchState = {
-        item: selectedItem,
-        dist: getTouchDist(e),
-        origSize: selectedItem.size
-      };
+      const dist = getTouchDist(e);
+      if (selectedItem) {
+        pinchState = {
+          type: 'emoji',
+          item: selectedItem,
+          dist: dist,
+          origSize: selectedItem.size
+        };
+      } else {
+        pinchState = {
+          type: 'canvas',
+          dist: dist,
+          origZoom: canvasZoom
+        };
+      }
       return;
     }
 
@@ -553,8 +630,8 @@ input,button,textarea{font-family:inherit;font-size:16px}
       const rect = hit.el.getBoundingClientRect();
       dragState = {
         item: hit,
-        offsetX: t.clientX - rect.left,
-        offsetY: t.clientY - rect.top,
+        offsetX: (t.clientX - rect.left) / canvasZoom,
+        offsetY: (t.clientY - rect.top) / canvasZoom,
         startX: t.clientX,
         startY: t.clientY,
         moved: false
@@ -572,9 +649,13 @@ input,button,textarea{font-family:inherit;font-size:16px}
       e.preventDefault();
       const dist = getTouchDist(e);
       const scale = dist / pinchState.dist;
-      const newSize = Math.round(pinchState.origSize * scale);
-      pinchState.item.size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, newSize));
-      pinchState.item.el.style.fontSize = pinchState.item.size + 'px';
+      if (pinchState.type === 'emoji') {
+        const newSize = Math.round(pinchState.origSize * scale);
+        pinchState.item.size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, newSize));
+        pinchState.item.el.style.fontSize = pinchState.item.size + 'px';
+      } else {
+        setCanvasZoom(pinchState.origZoom * scale);
+      }
       return;
     }
 
@@ -588,13 +669,16 @@ input,button,textarea{font-family:inherit;font-size:16px}
 
     if (!dragState.moved) return;
 
-    const cRect = canvas.getBoundingClientRect();
-    const nx = t.clientX - cRect.left - dragState.offsetX;
-    const ny = t.clientY - cRect.top - dragState.offsetY;
-    dragState.item.el.style.left = Math.max(0, Math.min(nx, cRect.width - dragState.item.size)) + 'px';
-    dragState.item.el.style.top = Math.max(0, Math.min(ny, cRect.height - dragState.item.size)) + 'px';
+    const pos = screenToCanvas(t.clientX, t.clientY);
+    const iw = canvasInner.offsetWidth;
+    const ih = canvasInner.offsetHeight;
+    const nx = pos.x - dragState.offsetX;
+    const ny = pos.y - dragState.offsetY;
+    dragState.item.el.style.left = Math.max(0, Math.min(nx, iw - dragState.item.size)) + 'px';
+    dragState.item.el.style.top = Math.max(0, Math.min(ny, ih - dragState.item.size)) + 'px';
 
     // Trash detection
+    const cRect = canvas.getBoundingClientRect();
     const bottomDist = cRect.bottom - t.clientY;
     if (bottomDist < TRASH_HEIGHT) {
       trashZone.classList.add('visible', 'active');
@@ -646,15 +730,18 @@ input,button,textarea{font-family:inherit;font-size:16px}
       selectItem(hit);
       let moved = false;
       const rect = hit.el.getBoundingClientRect();
-      const ox = e.clientX - rect.left;
-      const oy = e.clientY - rect.top;
+      const ox = (e.clientX - rect.left) / canvasZoom;
+      const oy = (e.clientY - rect.top) / canvasZoom;
 
       const onMove = (ev) => {
         moved = true;
-        const cRect = canvas.getBoundingClientRect();
-        hit.el.style.left = Math.max(0, Math.min(ev.clientX - cRect.left - ox, cRect.width - hit.size)) + 'px';
-        hit.el.style.top = Math.max(0, Math.min(ev.clientY - cRect.top - oy, cRect.height - hit.size)) + 'px';
+        const pos = screenToCanvas(ev.clientX, ev.clientY);
+        const iw = canvasInner.offsetWidth;
+        const ih = canvasInner.offsetHeight;
+        hit.el.style.left = Math.max(0, Math.min(pos.x - ox, iw - hit.size)) + 'px';
+        hit.el.style.top = Math.max(0, Math.min(pos.y - oy, ih - hit.size)) + 'px';
 
+        const cRect = canvas.getBoundingClientRect();
         const bottomDist = cRect.bottom - ev.clientY;
         if (bottomDist < TRASH_HEIGHT) {
           trashZone.classList.add('visible', 'active');
@@ -687,6 +774,13 @@ input,button,textarea{font-family:inherit;font-size:16px}
     }
   }
 
+  // Mouse wheel zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setCanvasZoom(canvasZoom + delta);
+  }, { passive: false });
+
   // ── Toolbar ──
   function setupToolbar() {
     btnOther.addEventListener('click', openEmojiKeyboard);
@@ -695,6 +789,9 @@ input,button,textarea{font-family:inherit;font-size:16px}
       emojiItems = [];
       deselectItem();
       updateHint();
+      setCanvasZoom(1);
+      canvas.scrollTop = 0;
+      canvas.scrollLeft = 0;
     });
     btnShare.addEventListener('click', share);
   }
@@ -703,9 +800,8 @@ input,button,textarea{font-family:inherit;font-size:16px}
   function share() {
     if (emojiItems.length === 0) return;
 
-    const cRect = canvas.getBoundingClientRect();
-    const cw = cRect.width;
-    const ch = cRect.height;
+    const cw = canvasInner.offsetWidth;
+    const ch = canvasInner.offsetHeight;
 
     // Map emojis to grid cells
     const grid = Array.from({ length: GRID }, () => Array(GRID).fill(null));
